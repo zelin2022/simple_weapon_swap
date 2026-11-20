@@ -1,0 +1,9 @@
+## Interface: 16001
+## AllowLoadGameType: camelot
+## Title: Simple Weapon Swap
+## Notes: Switch between your damage and healing weapons.
+## Version: 1.1.0
+## SavedVariablesPerCharacter: FeralWeaponSwapDB
+
+simple_weapon_swap.lua
+Setup.lua
