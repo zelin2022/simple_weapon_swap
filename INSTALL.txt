@@ -1,4 +1,4 @@
-SIMPLE WEAPON SWAP 1.1.0
+SIMPLE WEAPON SWAP 1.2.0
 World of Warcraft: Forever 1.60.1 (addon interface 16001)
 
 INSTALL
@@ -25,8 +25,24 @@ SET UP
 4. To assign a keyboard shortcut, click Bind key and press an available key or
    combination.
 
+USE AN EXISTING ACTION-BAR KEY
+1. Restore or keep the key on its usual slot in WoW's Key Bindings.
+2. On the character that should swap weapons, open /fws out of combat
+   and enable Override an action-bar key on this character.
+3. Click Bind key and press the same key. WoW keeps its original binding.
+
+For example, restore T to Action Bar 2, Slot 1 in WoW's shared Key Bindings.
+On your druid, open /fws, enable the override, then click Bind key and press T.
+On your mage, put Polymorph in that slot and leave the addon swap key
+unassigned. T swaps on the druid and casts Polymorph on the mage.
+
+Enable Pass through to the normal WoW binding out of combat to release
+the override and use the regular binding. The addon remembers the swap key.
+Disable pass-through to resume keyboard swapping. The on-screen button
+works in either mode.
+
 CONTROLS
-- Left-click the display or press your bound key to swap sets.
+- Left-click the display or press your active swap key to swap sets.
 - Right-click for the second set (Healing by default) or middle-click for the
   first set (Damage by default).
 - Hold Shift and drag with the left mouse button to move the display out of

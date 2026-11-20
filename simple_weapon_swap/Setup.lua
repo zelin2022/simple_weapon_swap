@@ -22,6 +22,19 @@ local function Button(parent, text, width, x, y, onClick)
     return button
 end
 
+local function Checkbox(text, y, onClick)
+    local box = CreateFrame("CheckButton", nil, setup, "UICheckButtonTemplate")
+    box:SetSize(24, 24)
+    box:SetPoint("TOPLEFT", 20, y)
+    box:SetHitRectInsets(0, -360, 0, 0)
+    box:SetScript("OnClick", onClick)
+
+    local label = box:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    label:SetPoint("LEFT", box, "RIGHT", 4, 0)
+    label:SetText(text)
+    return box
+end
+
 local function SetMessage(text, isError)
     setup.message:SetText(text or "")
     if isError then
@@ -210,16 +223,37 @@ function addon.RefreshSetup()
     RefreshSection(setup.healing)
 
     local key = addon.GetBinding()
+    local allowActionBarOverride, passThrough = addon.GetBindingOptions()
     local bindingText = key and GetBindingText(key) or "Unbound"
-    setup.bindingLabel:SetText(setup.listening and "Press a key. Esc cancels." or ("Swap key: " .. bindingText))
-    setup.bind:SetEnabled(not locked and not setup.listening)
-    setup.clear:SetEnabled(not locked and not setup.listening and key ~= nil)
+    local label = "Swap key: " .. bindingText
+    if key and passThrough then
+        label = "Saved key: " .. bindingText
+    elseif key and not addon.IsBindingActive() then
+        label = "Saved key: " .. bindingText .. " (inactive)"
+    end
+    setup.bindingLabel:SetText(setup.listening and "Press a key. Esc cancels." or label)
+    local canEditBinding = not locked and not setup.listening
+    setup.bind:SetEnabled(canEditBinding)
+    setup.clear:SetEnabled(canEditBinding and key ~= nil)
+    setup.overrideActionBar:SetChecked(allowActionBarOverride)
+    setup.overrideActionBar:SetEnabled(canEditBinding)
+    setup.passThrough:SetChecked(passThrough)
+    setup.passThrough:SetEnabled(canEditBinding)
     setup.combat:SetShown(locked and true or false)
+end
+
+local function SaveBindingOptions()
+    local ok, message = addon.SetBindingOptions(
+        not not setup.overrideActionBar:GetChecked(),
+        not not setup.passThrough:GetChecked()
+    )
+    SetMessage(message, not ok)
+    addon.RefreshSetup()
 end
 
 local function CreateSetup()
     setup = CreateFrame("Frame", "SimpleWeaponSwapSetup", UIParent, "BasicFrameTemplateWithInset")
-    setup:SetSize(438, 428)
+    setup:SetSize(438, 484)
     setup:SetPoint("CENTER", 0, 36)
     setup:SetClampedToScreen(true)
     setup:SetFrameStrata("DIALOG")
@@ -255,10 +289,13 @@ local function CreateSetup()
         addon.RefreshSetup()
     end)
 
-    setup.message = Text(setup, "GameFontHighlightSmall", "", 20, -389)
+    setup.overrideActionBar = Checkbox("Override an action-bar key on this character", -385, SaveBindingOptions)
+    setup.passThrough = Checkbox("Pass through to the normal WoW binding", -412, SaveBindingOptions)
+
+    setup.message = Text(setup, "GameFontHighlightSmall", "", 20, -445)
     setup.message:SetWidth(398)
     setup.message:SetJustifyH("LEFT")
-    setup.combat = Text(setup, "GameFontNormalSmall", "Set editing and key changes are available out of combat.", 20, -409)
+    setup.combat = Text(setup, "GameFontNormalSmall", "Set editing and key changes are available out of combat.", 20, -465)
     setup.combat:SetTextColor(1, 0.77, 0.34)
 
     setup:SetScript("OnKeyDown", function(_, key)

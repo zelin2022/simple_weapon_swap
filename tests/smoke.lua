@@ -1,5 +1,7 @@
 local frames, combat, equipped, macros = {}, false, {16, nil}, {}
-local canStow, canEquipOff, bindings, printed = true, true, {}, {}
+local canStow, canEquipOff, printed = true, true, {}
+local nativeBindings, bindingOverrides = {}, {}
+local swapAction = "CLICK SimpleWeaponSwapToggle:SwapKey"
 local shift, mouseDown, cursorX, cursorY = false, false, 0, 0
 local dualWield = false
 local functions = {}
@@ -38,6 +40,9 @@ function functions:ClearFocus()
     end
 end
 function functions:GetText() return self.text end
+function functions:SetChecked(checked) self.checked = checked and true or false end
+function functions:GetChecked() return rawget(self, "checked") or false end
+function functions:SetEnabled(enabled) self.enabled = enabled end
 function functions:Show() self.shown = true end
 function functions:Hide() self.shown = false end
 function functions:IsShown() return self.shown end
@@ -115,15 +120,21 @@ function GetBindingText(key) return key end
 strlenutf8, tinsert = string.len, table.insert
 function GetBuildInfo() return "1.60.1", "70959", "", 16001 end
 function strtrim(text) return text:match("^%s*(.-)%s*$") end
-function GetBindingAction(key) return bindings[key] or "" end
+function GetBindingAction(key, checkOverride)
+    local override = checkOverride and bindingOverrides[key]
+    return (override and override.action) or nativeBindings[key] or ""
+end
 function ClearOverrideBindings(frame)
-    assert(not combat)
-    if frame.bound then bindings[frame.bound] = nil end
+    assert(not combat, "Binding override cleared in combat")
+    for key, override in pairs(bindingOverrides) do
+        if override.owner == frame then
+            bindingOverrides[key] = nil
+        end
+    end
 end
 function SetOverrideBindingClick(frame, _, key, name, button)
-    assert(not combat)
-    frame.bound = key
-    bindings[key] = "CLICK " .. name .. ":" .. button
+    assert(not combat, "Binding override assigned in combat")
+    bindingOverrides[key] = {owner = frame, action = "CLICK " .. name .. ":" .. button}
 end
 function GameTooltip_Hide() end
 GameTooltip = widget()
@@ -193,7 +204,7 @@ event("PLAYER_ENTERING_WORLD")
 local toggle = frames.SimpleWeaponSwapToggle
 local status = toggle.fonts[2]
 assert(status.text == "Set up weapons")
-assert(addon.GetBinding() == "F8" and GetBindingAction("F8") == "CLICK SimpleWeaponSwapToggle:SwapKey")
+assert(addon.GetBinding() == "F8" and GetBindingAction("F8", true) == swapAction)
 assert(addon.GetSets() == legacy.sets)
 assert(#toggle.parent.children == 1)
 Click()
@@ -212,9 +223,9 @@ assert(status.text == "Healing")
 Click()
 assert(status.text == "Damage" and equipped[2] == nil)
 
-bindings.F5 = "OTHER"
+nativeBindings.F5 = "OPENALLBAGS"
 assert(not addon.SetBinding("F5"))
-assert(addon.SetBinding("F6") and GetBindingAction("F6") == "CLICK SimpleWeaponSwapToggle:SwapKey")
+assert(addon.SetBinding("F6") and GetBindingAction("F6", true) == swapAction)
 enterCombat()
 assert(not addon.SaveSet("damage", 31))
 assert(not addon.SetBinding("F7"))
@@ -253,7 +264,7 @@ event("PLAYER_EQUIPMENT_CHANGED", 16)
 Click()
 assert(status.text == "Damage" and equipped[1] == 16)
 leaveCombat()
-assert(addon.SetBinding(nil) and GetBindingAction("F6") == "")
+assert(addon.SetBinding(nil) and GetBindingAction("F6", true) == "")
 
 -- A Shift-bound key still swaps while a Shift-click is reserved for movement.
 assert(addon.SetBinding("SHIFT-F6"))
@@ -322,5 +333,110 @@ assert(not addon.SaveSet("healing", 21, 21))
 assert(addon.SaveSet("healing", 21, 23))
 Click("RightButton")
 assert(status.text == "Healing" and equipped[1] == 21 and equipped[2] == 23)
+
+-- Native and addon bindings remain independent.
+local actionBarSlot = "MULTIACTIONBAR1BUTTON1"
+local actionBar = {[actionBarSlot] = "Druid action"}
+local lastAction
+local function PressKey(key)
+    local action = GetBindingAction(key, true)
+    if action == swapAction then
+        Click("SwapKey")
+    else
+        lastAction = actionBar[action]
+    end
+end
+
+nativeBindings.T = actionBarSlot
+local allowOverride, passThrough = addon.GetBindingOptions()
+assert(allowOverride == false and passThrough == false)
+assert(not addon.SetBinding("T"))
+assert(addon.GetBinding() == "SHIFT-F6" and GetBindingAction("T", true) == actionBarSlot)
+
+assert(addon.SetBindingOptions(true, false))
+allowOverride, passThrough = addon.GetBindingOptions()
+assert(allowOverride == true and passThrough == false)
+assert(not addon.SetBinding("F5") and GetBindingAction("F5", true) == "OPENALLBAGS")
+
+local foreignOwner = widget()
+SetOverrideBindingClick(foreignOwner, true, "T", "OtherAddonButton", "LeftButton")
+assert(not addon.SetBinding("T"))
+assert(GetBindingAction("T", true) == "CLICK OtherAddonButton:LeftButton")
+assert(GetBindingAction("T") == actionBarSlot)
+ClearOverrideBindings(foreignOwner)
+
+assert(addon.SetBinding("T"))
+assert(addon.GetBinding() == "T" and GetBindingAction("T", true) == swapAction)
+assert(GetBindingAction("T") == actionBarSlot)
+assert(GetBindingAction("SHIFT-F6", true) == "")
+
+enterCombat()
+assert(not addon.SetBindingOptions(true, true))
+assert(not setup.overrideActionBar.enabled and not setup.passThrough.enabled)
+assert(GetBindingAction("T", true) == swapAction)
+PressKey("T")
+assert(status.text == "Damage" and lastAction == nil)
+leaveCombat()
+
+-- Enabling pass-through in setup releases only the addon override.
+addon.RefreshSetup()
+assert(setup.overrideActionBar:GetChecked() and not setup.passThrough:GetChecked())
+assert(setup.bindingLabel:GetText() == "Swap key: T")
+setup.passThrough:SetChecked(true)
+setup.passThrough:Fire("OnClick")
+allowOverride, passThrough = addon.GetBindingOptions()
+assert(allowOverride == true and passThrough == true)
+assert(not addon.IsBindingActive() and setup.bindingLabel:GetText() == "Saved key: T")
+assert(addon.GetBinding() == "T" and GetBindingAction("T", true) == actionBarSlot)
+
+enterCombat()
+assert(not addon.SetBindingOptions(true, false))
+PressKey("T")
+assert(lastAction == "Druid action" and status.text == "Damage")
+leaveCombat()
+event("PLAYER_ENTERING_WORLD")
+assert(GetBindingAction("T", true) == actionBarSlot)
+
+assert(addon.SetBindingOptions(true, false))
+assert(addon.IsBindingActive())
+assert(GetBindingAction("T") == actionBarSlot and GetBindingAction("T", true) == swapAction)
+PressKey("T")
+assert(status.text == "Healing")
+
+-- Revoking permission keeps the saved key and hands T back to WoW.
+assert(addon.SetBindingOptions(false, false))
+assert(not addon.IsBindingActive() and addon.GetBinding() == "T")
+addon.RefreshSetup()
+assert(setup.bindingLabel:GetText() == "Saved key: T (inactive)")
+assert(GetBindingAction("T", true) == actionBarSlot)
+lastAction = nil
+PressKey("T")
+assert(lastAction == "Druid action" and status.text == "Healing")
+
+-- Changing modes must respect an override acquired by another addon in the meantime.
+SetOverrideBindingClick(foreignOwner, true, "T", "OtherAddonButton", "LeftButton")
+assert(addon.SetBindingOptions(true, false))
+assert(not addon.IsBindingActive() and addon.GetBinding() == "T")
+assert(GetBindingAction("T", true) == "CLICK OtherAddonButton:LeftButton")
+ClearOverrideBindings(foreignOwner)
+event("PLAYER_ENTERING_WORLD")
+assert(addon.IsBindingActive() and GetBindingAction("T", true) == swapAction)
+
+-- A new character loads a separate saved profile and the same native action bar binding.
+ClearOverrideBindings(toggle)
+actionBar[actionBarSlot] = "Polymorph"
+FeralWeaponSwapDB = {sets = {}}
+local mage = {RefreshSetup = function() end}
+frames.first = nil
+assert(loadfile("simple_weapon_swap/simple_weapon_swap.lua"))("simple_weapon_swap", mage)
+events = frames.first
+event("ADDON_LOADED", "simple_weapon_swap")
+event("PLAYER_ENTERING_WORLD")
+allowOverride, passThrough = mage.GetBindingOptions()
+assert(allowOverride == false and passThrough == false)
+assert(mage.GetBinding() == nil and GetBindingAction("T", true) == actionBarSlot)
+PressKey("T")
+assert(lastAction == "Polymorph")
+assert(GetBindingAction("F5", true) == "OPENALLBAGS")
 
 print("Lua 5.1 smoke checks passed")

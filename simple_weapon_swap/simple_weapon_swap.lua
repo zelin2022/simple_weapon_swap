@@ -253,30 +253,81 @@ function addon.GetBinding()
     return db.key
 end
 
+function addon.GetBindingOptions()
+    return db.allowActionBarOverride == true, db.passThrough == true
+end
+
+function addon.IsBindingActive()
+    return db.key ~= nil and not db.passThrough and GetBindingAction(db.key, true) == SWAP_BINDING
+end
+
 local function BindingConflict(key)
-    local action = GetBindingAction(key, true)
-    return action and action ~= "" and action ~= SWAP_BINDING
+    local normal = GetBindingAction(key)
+    local effective = GetBindingAction(key, true)
+    if effective and effective ~= "" and effective ~= normal and effective ~= SWAP_BINDING then
+        return key .. " is overridden by another addon. Choose another key."
+    end
+    if not normal or normal == "" or normal == SWAP_BINDING then
+        return nil
+    end
+
+    local actionBar = normal:match("^ACTIONBUTTON%d+$") or normal:match("^MULTIACTIONBAR%d+BUTTON%d+$")
+    if actionBar then
+        if db.allowActionBarOverride then
+            return nil
+        end
+        return key .. " has an action-bar binding. Enable the override option to use it here."
+    end
+    return key .. " already has a binding. Choose another key."
 end
 
 local function ApplyBinding()
+    -- Clearing this frame's override lets the original WoW binding handle the key.
     ClearOverrideBindings(toggle)
-    if db.key and not BindingConflict(db.key) then
-        SetOverrideBindingClick(toggle, false, db.key, toggle:GetName(), "SwapKey")
+    if not db.key or db.passThrough then
         return true
     end
-    return not db.key
+
+    local conflict = BindingConflict(db.key)
+    if conflict then
+        return false, conflict
+    end
+    SetOverrideBindingClick(toggle, false, db.key, toggle:GetName(), "SwapKey")
+    if not addon.IsBindingActive() then
+        ClearOverrideBindings(toggle)
+        return false, db.key .. " could not be activated as the swap key."
+    end
+    return true
+end
+
+function addon.SetBindingOptions(allowActionBarOverride, passThrough)
+    if InCombatLockdown() then
+        return false, "Change key options after combat."
+    end
+
+    db.allowActionBarOverride = allowActionBarOverride == true
+    db.passThrough = passThrough == true
+    local _, message = ApplyBinding()
+    return true, message
 end
 
 function addon.SetBinding(key)
     if InCombatLockdown() then
         return false, "Change your swap key after combat."
     end
-    if key and BindingConflict(key) then
-        return false, key .. " already has a binding. Choose another key."
+
+    local conflict = key and BindingConflict(key)
+    if conflict then
+        return false, conflict
     end
+    local previous = db.key
     db.key = key
-    ApplyBinding()
-    return true
+    local ok, message = ApplyBinding()
+    if not ok then
+        db.key = previous
+        ApplyBinding()
+    end
+    return ok, message
 end
 
 local function EnableDragging(frame)
@@ -413,7 +464,7 @@ local function CreateToggle()
             GameTooltip:AddLine(addon.GetItemName(off), 1, 1, 1)
         end
         GameTooltip:AddLine(" ")
-        local key = db.key and GetBindingAction(db.key, true) == SWAP_BINDING and db.key
+        local key = addon.IsBindingActive() and db.key
         GameTooltip:AddLine(key and ("Left-click or " .. key .. " to swap sets") or "Left-click to swap sets", 1, 1, 1)
         GameTooltip:AddLine("Right-click to equip " .. addon.GetSetName("healing"), 0.78, 0.8, 0.84, true)
         GameTooltip:AddLine("Middle-click to equip " .. addon.GetSetName("damage"), 0.78, 0.8, 0.84, true)
@@ -444,8 +495,11 @@ events:SetScript("OnEvent", function(self, event, ...)
         self:RegisterEvent("PLAYER_REGEN_ENABLED")
         self:RegisterEvent("ITEM_DATA_LOAD_RESULT")
     elseif event == "PLAYER_ENTERING_WORLD" then
-        if not InCombatLockdown() and not ApplyBinding() then
-            Message("Your saved swap key is in use. Choose another key in /fws.")
+        if not InCombatLockdown() then
+            local _, message = ApplyBinding()
+            if message then
+                Message(message .. " Open /fws to change key options.")
+            end
         end
         CompileSwap()
     elseif event == "PLAYER_REGEN_ENABLED" then
